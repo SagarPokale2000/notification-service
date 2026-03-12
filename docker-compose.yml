@@ -1,0 +1,246 @@
+# ============================================================
+# docker-compose.yml
+# Real-Time Event Streaming & Notification Platform
+# ============================================================
+# What this file does:
+#   Spins up ALL infrastructure services with one command:
+#   > docker-compose up -d
+#
+# Services started:
+#   1. MySQL          → stores users, events
+#   2. Redis          → caching layer
+#   3. Zookeeper      → required by Kafka (manages cluster metadata)
+#   4. Kafka          → event streaming backbone
+#   5. RabbitMQ       → async notification queue
+#   6. Prometheus     → metrics collection
+#   7. Grafana        → metrics dashboards
+# ============================================================
+
+# version: '3.8'
+
+# ─────────────────────────────────────────
+# NETWORKS
+# Think of this as a private Wi-Fi network
+# only containers inside it can talk to each other
+# ─────────────────────────────────────────
+networks:
+  platform-network:
+    driver: bridge
+
+# ─────────────────────────────────────────
+# VOLUMES
+# Persistent storage so data survives
+# even when containers are stopped/restarted
+# ─────────────────────────────────────────
+volumes:
+  mysql-data:
+  redis-data:
+  kafka-data:
+  prometheus-data:
+  grafana-data:
+
+# ─────────────────────────────────────────
+# SERVICES
+# Each block = one running container
+# ─────────────────────────────────────────
+services:
+
+  # ════════════════════════════════════════
+  # 1. MySQL — Primary Database
+  # Used by: user-service, event-consumer-service
+  # Port: 3306 (standard MySQL port)
+  # ════════════════════════════════════════
+  mysql:
+    image: mysql:8.0                         # Official MySQL image, version 8
+    container_name: platform-mysql
+    restart: unless-stopped                  # Auto-restart if it crashes
+    environment:
+      MYSQL_ROOT_PASSWORD: root123           # Root password (change in production!)
+      MYSQL_DATABASE: platform_db            # Auto-creates this database on first start
+      MYSQL_USER: platform_user              # App user (Spring Boot will connect as this)
+      MYSQL_PASSWORD: platform_pass          # App user password
+    ports:
+      - "3307:3306"                          # host:container — access MySQL from your PC too
+    volumes:
+      - mysql-data:/var/lib/mysql            # Persist DB files so data survives restarts
+      - ./init-scripts:/docker-entrypoint-initdb.d  # Any .sql files here run on first boot
+    networks:
+      - platform-network
+    healthcheck:                             # Docker checks if MySQL is truly ready
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ════════════════════════════════════════
+  # 2. Redis — Caching Layer
+  # Used by: api-gateway (rate limiting), event-consumer (caching)
+  # Port: 6379 (standard Redis port)
+  # ════════════════════════════════════════
+  redis:
+    image: redis:7.2-alpine                  # Alpine = lightweight Linux, smaller image
+    container_name: platform-redis
+    restart: unless-stopped
+    command: redis-server --requirepass redis123 --appendonly yes
+    #         ↑ sets password  ↑ enables AOF persistence (data survives restarts)
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis123", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ════════════════════════════════════════
+  # 3. Zookeeper — Kafka's Dependency
+  # Kafka needs Zookeeper to manage brokers,
+  # topics, and cluster coordination.
+  # You don't interact with it directly.
+  # Port: 2181
+  # ════════════════════════════════════════
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: platform-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181            # Port Kafka uses to talk to Zookeeper
+      ZOOKEEPER_TICK_TIME: 2000              # Heartbeat interval in milliseconds
+    ports:
+      - "2181:2181"
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ════════════════════════════════════════
+  # 4. Kafka — Event Streaming Backbone
+  # Used by: event-producer-service (publishes),
+  #          event-consumer-service (consumes)
+  # Port: 9092 (internal), 29092 (external/your PC)
+  # ════════════════════════════════════════
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: platform-kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy           # Wait until Zookeeper is ready
+    environment:
+      KAFKA_BROKER_ID: 1                                     # Unique ID for this broker
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181                # Where to find Zookeeper
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      #  ↑ kafka:9092      = used by OTHER containers (internal docker network)
+      #  ↑ localhost:29092 = used by YOUR PC / tools like Kafka UI
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1              # 1 = single broker setup (dev only)
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'                # Topics auto-created when first used
+      KAFKA_LOG_RETENTION_HOURS: 168                         # Keep messages for 7 days
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ════════════════════════════════════════
+  # 5. RabbitMQ — Async Notification Queue
+  # Used by: notification-service
+  # Port: 5672 (AMQP protocol), 15672 (web UI)
+  # Web UI login: guest / guest
+  # ════════════════════════════════════════
+  rabbitmq:
+    image: rabbitmq:3.12-management          # 'management' tag includes the web dashboard
+    container_name: platform-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: rabbit_user
+      RABBITMQ_DEFAULT_PASS: rabbit_pass
+    ports:
+      - "5672:5672"                          # AMQP port — Spring Boot connects here
+      - "15672:15672"                        # Management UI — open in browser
+    networks:
+      - platform-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ════════════════════════════════════════
+  # 6. Kafka UI — Visual Kafka Dashboard
+  # Not required but VERY helpful for development
+  # Open browser: http://localhost:8090
+  # See topics, messages, consumer groups live
+  # ════════════════════════════════════════
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: platform-kafka-ui
+    restart: unless-stopped
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    ports:
+      - "8091:8080"
+    networks:
+      - platform-network
+
+  # ════════════════════════════════════════
+  # 7. Prometheus — Metrics Collector
+  # Scrapes metrics from all Spring Boot services
+  # (via /actuator/prometheus endpoint)
+  # Port: 9090
+  # ════════════════════════════════════════
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: platform-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml  # Config file (created below)
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=15d'              # Keep metrics for 15 days
+    networks:
+      - platform-network
+
+  # ════════════════════════════════════════
+  # 8. Grafana — Metrics Dashboards
+  # Reads from Prometheus and shows graphs
+  # Port: 3000
+  # Default login: admin / admin
+  # ════════════════════════════════════════
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: platform-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning   # Auto-load datasources
+    ports:
+      - "3000:3000"
+    networks:
+      - platform-network

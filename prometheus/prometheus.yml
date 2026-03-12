@@ -1,0 +1,47 @@
+# prometheus/prometheus.yml
+# ──────────────────────────────────────────────────────────
+# This tells Prometheus WHERE to collect metrics from.
+# Each Spring Boot service exposes metrics at:
+#   http://<service>:<port>/actuator/prometheus
+# ──────────────────────────────────────────────────────────
+
+global:
+  scrape_interval: 15s        # Collect metrics every 15 seconds
+  evaluation_interval: 15s    # Evaluate alert rules every 15 seconds
+
+scrape_configs:
+
+  # Prometheus monitors itself too
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ── Spring Boot Services ──────────────────────────────
+  # Add each service here as you build them.
+  # The target format is: container_name:port
+  # ─────────────────────────────────────────────────────
+
+  - job_name: 'user-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['user-service:8081']
+
+  - job_name: 'event-producer-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['event-producer-service:8082']
+
+  - job_name: 'event-consumer-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['event-consumer-service:8083']
+
+  - job_name: 'notification-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['notification-service:8084']
+
+  - job_name: 'api-gateway-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['api-gateway-service:8080']

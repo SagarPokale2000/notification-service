@@ -1,0 +1,16 @@
+# grafana/provisioning/datasources/prometheus.yml
+# ──────────────────────────────────────────────────────────
+# This auto-connects Grafana to Prometheus on startup.
+# Without this, you'd have to manually add the datasource
+# every time you recreate the Grafana container.
+# ──────────────────────────────────────────────────────────
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090      # 'prometheus' = container name on docker network
+    isDefault: true
+    editable: true
