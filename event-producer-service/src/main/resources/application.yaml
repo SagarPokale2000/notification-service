@@ -4,7 +4,6 @@ server:
 spring:
   application:
     name: event-producer-service
-
   kafka:
     bootstrap-servers: ${KAFKA_HOST:localhost}:${KAFKA_PORT:29092}
     producer:

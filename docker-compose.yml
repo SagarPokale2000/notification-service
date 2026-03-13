@@ -269,3 +269,111 @@ services:
       - "8081:8081"
     networks:
       - platform-network
+  
+  # ════════════════════════════════════════
+  # event-producer-service
+  # ════════════════════════════════════════
+  event-producer-service:
+    build:
+      context: ./event-producer-service
+      dockerfile: Dockerfile
+    container_name: event-producer-service
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 9092
+    ports:
+      - "8082:8082"
+    networks:
+      - platform-network
+
+  # ════════════════════════════════════════
+  # event-consumer-service
+  # ════════════════════════════════════════
+  event-consumer-service:
+    build:
+      context: ./event-consumer-service
+      dockerfile: Dockerfile
+    container_name: event-consumer-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: platform_user
+      DB_PASSWORD: platform_pass
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 9092
+      REDIS_HOST: redis
+    ports:
+      - "8083:8083"
+    networks:
+      - platform-network
+
+  # ════════════════════════════════════════
+  # notification-service
+  # ════════════════════════════════════════
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 9092
+      RABBITMQ_HOST: rabbitmq
+    ports:
+      - "8084:8084"
+    networks:
+      - platform-network
+
+  # ════════════════════════════════════════
+  # api-gateway-service
+  # ════════════════════════════════════════
+  api-gateway-service:
+    build:
+      context: ./api-gateway-service
+      dockerfile: Dockerfile
+    container_name: api-gateway-service
+    restart: unless-stopped
+    depends_on:
+      - user-service
+      - event-producer-service
+    environment:
+      USER_SERVICE_HOST: user-service
+      EVENT_PRODUCER_HOST: event-producer-service
+    ports:
+      - "8080:8080"
+    networks:
+      - platform-network
+
+
+
+
+
+## Important — Kafka port inside Docker:
+# Locally (IntelliJ):  KAFKA_HOST=localhost, KAFKA_PORT=29092
+# Inside Docker:       KAFKA_HOST=kafka,     KAFKA_PORT=9092
+
+# That's why application.yaml uses:
+#   ${KAFKA_HOST:localhost}:${KAFKA_PORT:29092}
+#   ↑ default for local    ↑ default for local
+
+# docker-compose overrides with:
+#   KAFKA_HOST: kafka
+#   KAFKA_PORT: 9092

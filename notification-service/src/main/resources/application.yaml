@@ -4,7 +4,6 @@ server:
 spring:
   application:
     name: notification-service
-
   kafka:
     bootstrap-servers: ${KAFKA_HOST:localhost}:${KAFKA_PORT:29092}
     consumer:
@@ -15,7 +14,6 @@ spring:
       properties:
         spring.json.trusted.packages: "com.platform.notification_service.dto"
         spring.json.value.default.type: "com.platform.notification_service.dto.KafkaEvent"
-
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: 5672

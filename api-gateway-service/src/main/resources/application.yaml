@@ -4,45 +4,38 @@ server:
 spring:
   application:
     name: api-gateway-service
-
   cloud:
     gateway:
       routes:
-        # ── user-service routes ──────────────────
         - id: user-service-auth
-          uri: http://localhost:8081
+          uri: http://${USER_SERVICE_HOST:localhost}:8081
           predicates:
             - Path=/api/auth/**
           filters:
             - name: AuthFilter
               args:
                 secured: false
-            # ↑ Public — no JWT needed
 
         - id: user-service-users
-          uri: http://localhost:8081
+          uri: http://${USER_SERVICE_HOST:localhost}:8081
           predicates:
             - Path=/api/users/**
           filters:
             - name: AuthFilter
               args:
                 secured: true
-            # ↑ Protected — JWT required
 
-        # ── event-producer-service routes ────────
         - id: event-producer-service
-          uri: http://localhost:8082
+          uri: http://${EVENT_PRODUCER_HOST:localhost}:8082
           predicates:
             - Path=/api/events/**
           filters:
             - name: AuthFilter
               args:
                 secured: true
-            # ↑ Protected — JWT required
 
 jwt:
   secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
-  # ↑ Must match user-service jwt.secret exactly!
 
 management:
   endpoints:
