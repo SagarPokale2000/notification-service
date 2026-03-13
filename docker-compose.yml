@@ -36,6 +36,7 @@ volumes:
   mysql-data:
   redis-data:
   kafka-data:
+  zookeeper-data: 
   prometheus-data:
   grafana-data:
 
@@ -111,6 +112,8 @@ services:
       ZOOKEEPER_TICK_TIME: 2000              # Heartbeat interval in milliseconds
     ports:
       - "2181:2181"
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
     networks:
       - platform-network
     healthcheck:
@@ -242,5 +245,27 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning   # Auto-load datasources
     ports:
       - "3000:3000"
+    networks:
+      - platform-network
+  
+  # ════════════════════════════════════════
+  # user-service — Spring Boot
+  # ════════════════════════════════════════
+  user-service:
+    build:
+      context: ./user-service    # folder containing Dockerfile
+      dockerfile: Dockerfile
+    container_name: user-service
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy   # wait for MySQL to be ready
+    environment:
+      DB_HOST: mysql                 # use Docker container name
+      DB_PORT: 3306                  # internal Docker port
+      DB_USERNAME: platform_user
+      DB_PASSWORD: platform_pass
+    ports:
+      - "8081:8081"
     networks:
       - platform-network
