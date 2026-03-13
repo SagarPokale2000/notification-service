@@ -17,7 +17,7 @@ import java.util.function.Function;
 public class JwtUtil {
 
     // Reads jwt.secret from application.yml
-    @Value("${jwt:secret}")
+    @Value("${jwt.secret}")
     private String secretKey;
 
     // Reads jwt.expiration from application.yml
