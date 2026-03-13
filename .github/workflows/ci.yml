@@ -1,0 +1,201 @@
+# ─────────────────────────────────────────────────────
+# CI/CD Pipeline for Event Streaming Platform
+# Triggers: every push and pull request to main branch
+# ─────────────────────────────────────────────────────
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+
+  # ════════════════════════════════════════
+  # JOB 1: Build and Test user-service
+  # ════════════════════════════════════════
+  build-user-service:
+    name: Build user-service
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build user-service
+        working-directory: ./user-service
+        run: mvn clean package -DskipTests
+
+      - name: Upload jar artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: user-service-jar
+          path: user-service/target/*.jar
+
+  # ════════════════════════════════════════
+  # JOB 2: Build event-producer-service
+  # ════════════════════════════════════════
+  build-event-producer:
+    name: Build event-producer-service
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build event-producer-service
+        working-directory: ./event-producer-service
+        run: mvn clean package -DskipTests
+
+  # ════════════════════════════════════════
+  # JOB 3: Build event-consumer-service
+  # ════════════════════════════════════════
+  build-event-consumer:
+    name: Build event-consumer-service
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build event-consumer-service
+        working-directory: ./event-consumer-service
+        run: mvn clean package -DskipTests
+
+  # ════════════════════════════════════════
+  # JOB 4: Build notification-service
+  # ════════════════════════════════════════
+  build-notification:
+    name: Build notification-service
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build notification-service
+        working-directory: ./notification-service
+        run: mvn clean package -DskipTests
+
+  # ════════════════════════════════════════
+  # JOB 5: Build api-gateway-service
+  # ════════════════════════════════════════
+  build-api-gateway:
+    name: Build api-gateway-service
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build api-gateway-service
+        working-directory: ./api-gateway-service
+        run: mvn clean package -DskipTests
+
+  # ════════════════════════════════════════
+  # JOB 6: Build Docker Images
+  # Runs only after ALL services build successfully
+  # ════════════════════════════════════════
+  build-docker-images:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs:
+      - build-user-service
+      - build-event-producer
+      - build-event-consumer
+      - build-notification
+      - build-api-gateway
+    # ↑ Only runs if ALL 5 build jobs pass
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build user-service image
+        run: |
+          docker build -t user-service:latest ./user-service
+
+      - name: Build event-producer-service image
+        run: |
+          docker build -t event-producer-service:latest ./event-producer-service
+
+      - name: Build event-consumer-service image
+        run: |
+          docker build -t event-consumer-service:latest ./event-consumer-service
+
+      - name: Build notification-service image
+        run: |
+          docker build -t notification-service:latest ./notification-service
+
+      - name: Build api-gateway-service image
+        run: |
+          docker build -t api-gateway-service:latest ./api-gateway-service
+
+      - name: List built images
+        run: docker images
+
+
+## What this pipeline does:
+
+# Every push to main branch:
+#         ↓
+# Jobs 1-5 run IN PARALLEL (faster!)
+#   ├── Build user-service        ✅/❌
+#   ├── Build event-producer      ✅/❌
+#   ├── Build event-consumer      ✅/❌
+#   ├── Build notification        ✅/❌
+#   └── Build api-gateway         ✅/❌
+#         ↓
+# Only if ALL pass:
+# Job 6: Build Docker images      ✅/❌
+
+
+
+## Visual on GitHub after push:
+
+# Actions tab → CI Pipeline
+#   ✅ Build user-service          ~2 min
+#   ✅ Build event-producer        ~2 min
+#   ✅ Build event-consumer        ~2 min
+#   ✅ Build notification          ~2 min
+#   ✅ Build api-gateway           ~2 min
+#   ✅ Build Docker Images         ~5 min
